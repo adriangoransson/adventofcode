@@ -72,7 +72,8 @@ fn part2(needle: &str) -> usize {
         let start = rc.scores.len() - len_diff;
         for (i, &s) in rc.scores[start..].iter().enumerate() {
             if last_seen == scores.len() {
-                return rc.scores.len() - scores.len() - i;
+                let processed = len_diff - i;
+                return rc.scores.len() - scores.len() - processed;
             }
 
             last_seen = {
