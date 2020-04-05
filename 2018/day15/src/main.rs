@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     fmt::Display,
     io::{self, Read},
 };
@@ -71,13 +71,10 @@ impl Creature {
 
             let mut find = || {
                 for pos in board.adjacent_points(v.0, v.1) {
-                    visited.entry(pos).or_insert_with(|| {
-                        // Queue if unvisited.
+                    if let Entry::Vacant(entry) = visited.entry(pos) {
                         queue.push_back(pos);
-
-                        // Push parent for backtracking later.
-                        v
-                    });
+                        entry.insert(v);
+                    }
                 }
             };
 
@@ -198,7 +195,7 @@ impl GameBoard {
         let mut visited: HashSet<usize> = HashSet::new();
 
         for i in 0..self.tiles.len() {
-            let mut should_be_open = vec![]; // Clean up queue.
+            let mut should_be_open = Vec::new(); // Clean up queue.
 
             if visited.contains(&i) {
                 continue;
@@ -208,12 +205,6 @@ impl GameBoard {
                 Tile::Open | Tile::Wall => continue,
 
                 Tile::Creature(c) => {
-                    if c.hit_points == 0 {
-                        // Dead. Put in clean up queue and continue.
-                        should_be_open.push(i);
-                        continue;
-                    }
-
                     // First creature to not have an enemy means the game is over.
                     if self.game_over() {
                         return;
