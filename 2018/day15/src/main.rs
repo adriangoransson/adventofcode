@@ -67,40 +67,38 @@ impl Creature {
 
             if let Some(tile) = board.tile(v.0, v.1) {
                 match tile {
-                    Tile::Creature(creature) => {
-                        if self.is_enemy(creature) && creature.hit_points > 0 {
-                            let mut parent = visited[&v];
-                            let mut distance = 1;
+                    Tile::Creature(creature) if self.is_enemy(creature) => {
+                        let mut parent = visited[&v];
+                        let mut distance = 1;
 
-                            let weakest_enemy = board
-                                .adjacent_points(parent.0, parent.1)
-                                .iter()
-                                .filter_map(|&point| match board.tile(point.0, point.1) {
-                                    Some(Tile::Creature(other)) if self.is_enemy(other) => {
-                                        Some((point, other.hit_points))
-                                    }
-                                    _ => None,
-                                })
-                                .min_by_key(|i| i.1)
-                                .map(|(pos, _)| pos)
-                                .unwrap();
-
-                            loop {
-                                distance += 1;
-                                if visited[&parent] == (x, y) {
-                                    break;
+                        let weakest_enemy = board
+                            .adjacent_points(parent.0, parent.1)
+                            .iter()
+                            .filter_map(|&point| match board.tile(point.0, point.1) {
+                                Some(Tile::Creature(other)) if self.is_enemy(other) => {
+                                    Some((point, other.hit_points))
                                 }
-                                parent = visited[&parent];
+                                _ => None,
+                            })
+                            .min_by_key(|i| i.1)
+                            .map(|(pos, _)| pos)
+                            .unwrap();
+
+                        loop {
+                            distance += 1;
+                            if visited[&parent] == (x, y) {
+                                break;
                             }
-
-                            let (move_to, attack) = match distance {
-                                1 => (None, Some(weakest_enemy)),
-                                2 => (Some(parent), Some(weakest_enemy)),
-                                _ => (Some(parent), None),
-                            };
-
-                            return Instructions { move_to, attack };
+                            parent = visited[&parent];
                         }
+
+                        let (move_to, attack) = match distance {
+                            1 => (None, Some(weakest_enemy)),
+                            2 => (Some(parent), Some(weakest_enemy)),
+                            _ => (Some(parent), None),
+                        };
+
+                        return Instructions { move_to, attack };
                     }
 
                     Tile::Open => {
@@ -112,7 +110,7 @@ impl Creature {
                         }
                     }
 
-                    Tile::Wall => continue,
+                    Tile::Wall | Tile::Creature(_) => continue,
                 }
             }
         }
@@ -222,8 +220,7 @@ impl GameBoard {
 
                             if other.hit_points == 0 {
                                 should_be_open.push(index);
-                                let count = self.creature_count.get_mut(&other.kind).unwrap();
-                                *count -= 1;
+                                *self.creature_count.get_mut(&other.kind).unwrap() -= 1;
                             }
                         }
                     }
