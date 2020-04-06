@@ -27,11 +27,7 @@ struct Instructions {
 
 impl Creature {
     fn elf() -> Self {
-        Creature {
-            kind: CreatureKind::Elf,
-            attack_power: 3,
-            hit_points: 200,
-        }
+        Self::elf_with_attack_power(3)
     }
 
     fn goblin() -> Self {
@@ -42,7 +38,7 @@ impl Creature {
         }
     }
 
-    fn advanced_elf(attack_power: u32) -> Self {
+    fn elf_with_attack_power(attack_power: u32) -> Self {
         Creature {
             kind: CreatureKind::Elf,
             attack_power,
@@ -68,15 +64,6 @@ impl Creature {
 
         while !queue.is_empty() {
             let v = queue.pop_front().unwrap();
-
-            let mut find = || {
-                for pos in board.adjacent_points(v.0, v.1) {
-                    if let Entry::Vacant(entry) = visited.entry(pos) {
-                        queue.push_back(pos);
-                        entry.insert(v);
-                    }
-                }
-            };
 
             if let Some(tile) = board.tile(v.0, v.1) {
                 match tile {
@@ -116,7 +103,15 @@ impl Creature {
                         }
                     }
 
-                    Tile::Open => find(),
+                    Tile::Open => {
+                        for pos in board.adjacent_points(v.0, v.1) {
+                            if let Entry::Vacant(entry) = visited.entry(pos) {
+                                queue.push_back(pos);
+                                entry.insert(v);
+                            }
+                        }
+                    }
+
                     Tile::Wall => continue,
                 }
             }
@@ -144,26 +139,25 @@ struct GameBoard {
     rounds: u32,
 }
 
-fn grid_coordinates(width: usize, index: usize) -> Point {
-    (index % width + 1, index / width + 1)
-}
-
-fn grid_index(width: usize, x: usize, y: usize) -> usize {
-    assert!(x >= 1);
-    assert!(y >= 1);
-
-    (x - 1) + (y - 1) * width
-}
-
 impl GameBoard {
+    fn grid_coordinates(&self, index: usize) -> Point {
+        (index % self.width + 1, index / self.width + 1)
+    }
+
+    fn grid_index(&self, x: usize, y: usize) -> usize {
+        assert!(x >= 1);
+        assert!(y >= 1);
+
+        (x - 1) + (y - 1) * self.width
+    }
+
     fn remaining_hit_points(&self) -> HashMap<CreatureKind, u32> {
         let mut hit_points = HashMap::with_capacity(self.creature_count.len());
 
         self.tiles.iter().for_each(|tile| match tile {
             Tile::Open | Tile::Wall => (),
             Tile::Creature(c) => {
-                let entry = hit_points.entry(c.kind).or_insert(0);
-                *entry += c.hit_points;
+                *hit_points.entry(c.kind).or_insert(0) += c.hit_points;
             }
         });
 
@@ -171,7 +165,7 @@ impl GameBoard {
     }
 
     fn tile(&self, x: usize, y: usize) -> Option<&Tile> {
-        self.tiles.get(grid_index(self.width, x, y))
+        self.tiles.get(self.grid_index(x, y))
     }
 
     fn adjacent_points(&self, x: usize, y: usize) -> Vec<Point> {
@@ -210,19 +204,19 @@ impl GameBoard {
                         return;
                     }
 
-                    let (x0, y0) = grid_coordinates(self.width, i);
+                    let (x0, y0) = self.grid_coordinates(i);
                     let instructions = c.find_next_tile(&self, x0, y0);
 
                     let attack_power = c.attack_power; // Necessary copy.
 
                     if let Some((x, y)) = instructions.move_to {
-                        let next = grid_index(self.width, x, y);
+                        let next = self.grid_index(x, y);
                         visited.insert(next);
                         self.tiles.swap(i, next);
                     }
 
                     if let Some((x, y)) = instructions.attack {
-                        let index = grid_index(self.width, x, y);
+                        let index = self.grid_index(x, y);
                         if let Some(Tile::Creature(other)) = self.tiles.get_mut(index) {
                             other.hit_points = other.hit_points.saturating_sub(attack_power);
 
@@ -250,8 +244,8 @@ impl GameBoard {
         let mut creature_count = HashMap::new();
 
         let mut creature = |creature: Creature| {
-            let entry = creature_count.entry(creature.kind).or_insert(0);
-            *entry += 1;
+            *creature_count.entry(creature.kind).or_insert(0) += 1;
+
             Tile::Creature(creature)
         };
 
@@ -347,7 +341,7 @@ fn main() {
 
     let try_board = |attack_power: u32| {
         let mut board = GameBoard::parse(
-            Creature::advanced_elf(attack_power),
+            Creature::elf_with_attack_power(attack_power),
             Creature::goblin(),
             &input,
         );
@@ -432,13 +426,12 @@ mod tests {
     #[test]
     fn convert_grid_pos() {
         let board = GameBoard::parse(Creature::elf(), Creature::goblin(), EXAMPLE_DATA);
-        let width = board.width;
 
         let mapping = [(7, (1, 2)), (17, (4, 3))];
 
         for (i, (x, y)) in &mapping {
-            assert_eq!(grid_index(width, *x, *y), *i);
-            assert_eq!(grid_coordinates(width, *i), (*x, *y));
+            assert_eq!(board.grid_index(*x, *y), *i);
+            assert_eq!(board.grid_coordinates(*i), (*x, *y));
         }
     }
 
@@ -725,7 +718,11 @@ mod tests {
 
         assert_eq!(0, elf_count(&board));
 
-        let mut board = GameBoard::parse(Creature::advanced_elf(14), Creature::goblin(), DATA);
+        let mut board = GameBoard::parse(
+            Creature::elf_with_attack_power(14),
+            Creature::goblin(),
+            DATA,
+        );
 
         while !board.game_over() {
             board.turn();
@@ -733,7 +730,11 @@ mod tests {
 
         assert!(initial_elf_count > elf_count(&board));
 
-        let mut board = GameBoard::parse(Creature::advanced_elf(15), Creature::goblin(), DATA);
+        let mut board = GameBoard::parse(
+            Creature::elf_with_attack_power(15),
+            Creature::goblin(),
+            DATA,
+        );
         while !board.game_over() {
             board.turn();
         }
@@ -771,7 +772,8 @@ mod tests {
 
         assert!(initial_elf_count > elf_count(&board));
 
-        let mut board = GameBoard::parse(Creature::advanced_elf(4), Creature::goblin(), DATA);
+        let mut board =
+            GameBoard::parse(Creature::elf_with_attack_power(4), Creature::goblin(), DATA);
 
         while !board.game_over() {
             board.turn();
