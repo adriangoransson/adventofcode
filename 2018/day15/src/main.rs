@@ -51,29 +51,30 @@ impl Creature {
     }
 
     /// Breadth first search from initial position `(x, y)`.
-    fn find_next_tile(&self, board: &GameBoard, x: usize, y: usize) -> Instructions {
+    fn find_next_tile(&self, board: &GameBoard, initial_pos: Point) -> Instructions {
         let mut visited = HashMap::new();
         let mut queue = VecDeque::new();
-        let initial_pos = (x, y);
 
         visited.insert(initial_pos, initial_pos); // Visited edges and their parents.
 
-        board.adjacent_points(x, y).iter().for_each(|&adjacent| {
-            visited.insert(adjacent, initial_pos);
-            queue.push_back(adjacent);
-        });
+        board
+            .adjacent_points(initial_pos)
+            .iter()
+            .for_each(|&adjacent| {
+                visited.insert(adjacent, initial_pos);
+                queue.push_back(adjacent);
+            });
 
         while !queue.is_empty() {
             let v = queue.pop_front().unwrap();
 
-            if let Some(tile) = board.tile(v.0, v.1) {
+            if let Some(tile) = board.tile(v) {
                 match tile {
                     Tile::Creature(creature) if self.is_enemy(creature) => {
-                        let (prev_x, prev_y) = visited[&v];
                         let weakest_enemy = board
-                            .adjacent_points(prev_x, prev_y)
+                            .adjacent_points(visited[&v])
                             .iter()
-                            .filter_map(|&point| match board.tile(point.0, point.1) {
+                            .filter_map(|&point| match board.tile(point) {
                                 Some(Tile::Creature(other)) if self.is_enemy(other) => {
                                     Some((point, other.hit_points))
                                 }
@@ -100,7 +101,7 @@ impl Creature {
                     }
 
                     Tile::Open => {
-                        for pos in board.adjacent_points(v.0, v.1) {
+                        for pos in board.adjacent_points(v) {
                             if let Entry::Vacant(entry) = visited.entry(pos) {
                                 queue.push_back(pos);
                                 entry.insert(v);
@@ -140,7 +141,7 @@ impl GameBoard {
         (index % self.width + 1, index / self.width + 1)
     }
 
-    fn grid_index(&self, x: usize, y: usize) -> usize {
+    fn grid_index(&self, (x, y): Point) -> usize {
         assert!(x >= 1);
         assert!(y >= 1);
 
@@ -160,11 +161,11 @@ impl GameBoard {
         hit_points
     }
 
-    fn tile(&self, x: usize, y: usize) -> Option<&Tile> {
-        self.tiles.get(self.grid_index(x, y))
+    fn tile(&self, point: Point) -> Option<&Tile> {
+        self.tiles.get(self.grid_index(point))
     }
 
-    fn adjacent_points(&self, x: usize, y: usize) -> Vec<Point> {
+    fn adjacent_points(&self, (x, y): Point) -> Vec<Point> {
         let top = if y > 1 { Some((x, y - 1)) } else { None };
         let left = if x > 1 { Some((x - 1, y)) } else { None };
         let right = Some((x + 1, y));
@@ -200,19 +201,16 @@ impl GameBoard {
                         return;
                     }
 
-                    let (x0, y0) = self.grid_coordinates(i);
-                    let instructions = c.find_next_tile(&self, x0, y0);
+                    let p0 = self.grid_coordinates(i);
+                    let instructions = c.find_next_tile(&self, p0);
 
-                    let attack_power = c.attack_power; // Necessary copy.
+                    // These instructions are handled "in reverse" because we need to copy `c.attack_power` to
+                    // use it while borrowing self.tiles. Doing it like this keeps the copy inside the relevant
+                    // block instead of before both which is confusing.
+                    if let Some(point) = instructions.attack {
+                        let index = self.grid_index(point);
+                        let attack_power = c.attack_power; // Necessary copy.
 
-                    if let Some((x, y)) = instructions.move_to {
-                        let next = self.grid_index(x, y);
-                        visited.insert(next);
-                        self.tiles.swap(i, next);
-                    }
-
-                    if let Some((x, y)) = instructions.attack {
-                        let index = self.grid_index(x, y);
                         if let Some(Tile::Creature(other)) = self.tiles.get_mut(index) {
                             other.hit_points = other.hit_points.saturating_sub(attack_power);
 
@@ -221,6 +219,12 @@ impl GameBoard {
                                 *self.creature_count.get_mut(&other.kind).unwrap() -= 1;
                             }
                         }
+                    }
+
+                    if let Some(point) = instructions.move_to {
+                        let next = self.grid_index(point);
+                        visited.insert(next);
+                        self.tiles.swap(i, next);
                     }
                 }
             }
@@ -406,16 +410,19 @@ mod tests {
 
         assert_eq!(7, board.width);
 
-        assert_eq!(Some(&Tile::Wall), board.tile(1, 1));
+        assert_eq!(Some(&Tile::Wall), board.tile((1, 1)));
 
-        assert_eq!(Some(&Tile::Open), board.tile(2, 2));
-        assert_eq!(Some(&Tile::Creature(Creature::goblin())), board.tile(3, 2));
-        assert_eq!(Some(&Tile::Open), board.tile(4, 2));
+        assert_eq!(Some(&Tile::Open), board.tile((2, 2)));
+        assert_eq!(
+            Some(&Tile::Creature(Creature::goblin())),
+            board.tile((3, 2))
+        );
+        assert_eq!(Some(&Tile::Open), board.tile((4, 2)));
 
-        assert_eq!(Some(&Tile::Open), board.tile(5, 3));
-        assert_eq!(Some(&Tile::Creature(Creature::elf())), board.tile(5, 4));
-        assert_eq!(Some(&Tile::Open), board.tile(6, 4));
-        assert_eq!(Some(&Tile::Wall), board.tile(7, 5));
+        assert_eq!(Some(&Tile::Open), board.tile((5, 3)));
+        assert_eq!(Some(&Tile::Creature(Creature::elf())), board.tile((5, 4)));
+        assert_eq!(Some(&Tile::Open), board.tile((6, 4)));
+        assert_eq!(Some(&Tile::Wall), board.tile((7, 5)));
     }
 
     #[test]
@@ -424,9 +431,9 @@ mod tests {
 
         let mapping = [(7, (1, 2)), (17, (4, 3))];
 
-        for (i, (x, y)) in &mapping {
-            assert_eq!(board.grid_index(*x, *y), *i);
-            assert_eq!(board.grid_coordinates(*i), (*x, *y));
+        for (i, point) in &mapping {
+            assert_eq!(board.grid_index(*point), *i);
+            assert_eq!(board.grid_coordinates(*i), *point);
         }
     }
 
@@ -616,8 +623,8 @@ mod tests {
         let mut board = GameBoard::parse(Creature::elf(), Creature::goblin(), INITIAL);
 
         let check_tiles = |board: &GameBoard, creature_kind: CreatureKind, points: &[Point]| {
-            for (x, y) in points {
-                let tile = board.tile(*x, *y);
+            for point in points {
+                let tile = board.tile(*point);
 
                 let matching_kind = match tile {
                     Some(Tile::Creature(Creature { kind, .. })) if *kind == creature_kind => true,
