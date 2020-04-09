@@ -54,12 +54,13 @@ impl Creature {
     fn find_next_tile(&self, board: &GameBoard, x: usize, y: usize) -> Instructions {
         let mut visited = HashMap::new();
         let mut queue = VecDeque::new();
+        let initial_pos = (x, y);
 
-        visited.insert((x, y), (x, y)); // Visited edges and their parents.
+        visited.insert(initial_pos, initial_pos); // Visited edges and their parents.
 
-        board.adjacent_points(x, y).iter().for_each(|&p| {
-            visited.insert(p, (x, y));
-            queue.push_back(p);
+        board.adjacent_points(x, y).iter().for_each(|&adjacent| {
+            visited.insert(adjacent, initial_pos);
+            queue.push_back(adjacent);
         });
 
         while !queue.is_empty() {
@@ -68,11 +69,9 @@ impl Creature {
             if let Some(tile) = board.tile(v.0, v.1) {
                 match tile {
                     Tile::Creature(creature) if self.is_enemy(creature) => {
-                        let mut parent = visited[&v];
-                        let mut distance = 1;
-
+                        let (prev_x, prev_y) = visited[&v];
                         let weakest_enemy = board
-                            .adjacent_points(parent.0, parent.1)
+                            .adjacent_points(prev_x, prev_y)
                             .iter()
                             .filter_map(|&point| match board.tile(point.0, point.1) {
                                 Some(Tile::Creature(other)) if self.is_enemy(other) => {
@@ -84,18 +83,17 @@ impl Creature {
                             .map(|(pos, _)| pos)
                             .unwrap();
 
-                        loop {
+                        let mut next = v;
+                        let mut distance = 1;
+                        while visited[&next] != initial_pos {
                             distance += 1;
-                            if visited[&parent] == (x, y) {
-                                break;
-                            }
-                            parent = visited[&parent];
+                            next = visited[&next];
                         }
 
                         let (move_to, attack) = match distance {
                             1 => (None, Some(weakest_enemy)),
-                            2 => (Some(parent), Some(weakest_enemy)),
-                            _ => (Some(parent), None),
+                            2 => (Some(next), Some(weakest_enemy)),
+                            _ => (Some(next), None),
                         };
 
                         return Instructions { move_to, attack };
@@ -348,13 +346,13 @@ fn main() {
 
         while !board.game_over() {
             board.turn();
+
+            if elf_count(&board) != initial_count {
+                return None;
+            }
         }
 
-        if initial_count == elf_count(&board) {
-            Some(board)
-        } else {
-            None
-        }
+        Some(board)
     };
 
     // Try a little bisection instead of bruteforce.
